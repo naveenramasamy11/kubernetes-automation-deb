@@ -1,0 +1,87 @@
+---
+# tasks file for k8s
+- name: Add kubernetes repository if OS family is redhat.
+  yum_repository:
+    name: Kubernetes
+    description: Adding Kubernetes repositories
+    baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+    gpgcheck: yes
+    enabled: true
+    gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+    repo_gpgcheck: yes
+  when: ansible_pkg_mgr == 'yum'
+
+- name: Add an Apt signing key and repository if OS Family is Debian
+  block:
+  - apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+    become: true
+
+  - name: Add the Repository
+    apt_repository:
+      repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+      codename: focal
+    become: true
+
+  - name: Install docker package if Debian based family
+    package:
+      name: docker.io
+      state: present
+    notify: start service
+  become: true
+  when: ansible_os_family == 'Debian'
+
+- name: Disable Firewall if running
+  service:
+    name: firewalld
+    state: stopped
+    enabled: false
+  when: ansible_os_family == 'RedHat'
+  ignore_errors: true
+
+- name: Disable SELinux if OS family is redhat.
+  selinux:
+    state: disabled
+  when: 
+  - ansible_os_family == 'RedHat'
+  - ansible_selinux.mode == 'enforcing'
+
+- name: update kernel settings
+  sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: 1
+    sysctl_set: yes
+    state: present
+    reload: yes
+  ignore_errors: true
+  
+- name: Install docker package if RedHat Based family
+  package:
+    name:
+    - docker
+    state: present
+  notify: start service
+  when: 
+  - ansible_os_family == 'RedHat'
+  become: yes
+
+- name: Install kubernetes Packages
+  package:
+    name: "{{ necessary_packages }}"
+    state: present
+  notify: start service
+
+- name: Add IP address of all hosts to all hosts
+  lineinfile:
+    dest: /etc/hosts
+    line: "{{ hostvars[item].ansible_host }} {{ hostvars[item].inventory_hostname }} {{ hostvars[item].inventory_hostname_short }}"
+    state: present
+    insertafter: EOF
+  with_items: "{{ groups.all }}"
+  ignore_errors: yes
+
+- name: Disable swap.
+  command: swapoff -a
+
